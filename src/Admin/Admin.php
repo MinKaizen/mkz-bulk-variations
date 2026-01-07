@@ -250,69 +250,108 @@ class Admin {
 	 * AJAX: Import variations
 	 */
 	public function ajax_import_variations() {
-		check_ajax_referer( 'mkz-bulk-variations', 'nonce' );
+		try {
+			error_log( '[Bulk Variations] Import started' );
+			
+			check_ajax_referer( 'mkz-bulk-variations', 'nonce' );
 
-		$input      = isset( $_POST['input'] ) ? wp_unslash( $_POST['input'] ) : '';
-		$product_id = isset( $_POST['product_id'] ) ? intval( $_POST['product_id'] ) : 0;
+			$input      = isset( $_POST['input'] ) ? wp_unslash( $_POST['input'] ) : '';
+			$product_id = isset( $_POST['product_id'] ) ? intval( $_POST['product_id'] ) : 0;
 
-		if ( empty( $input ) || empty( $product_id ) ) {
-			wp_send_json_error( array( 'message' => __( 'Invalid request.', 'mkz-bulk-variations' ) ) );
-		}
+			error_log( "[Bulk Variations] Product ID: {$product_id}, Input length: " . strlen( $input ) );
 
-		// Parse input.
-		$parser        = new Parser();
-		$parse_result  = $parser->parse_input( $input );
-
-		if ( ! $parse_result['success'] ) {
-			wp_send_json_error( array( 'errors' => $parse_result['errors'] ) );
-		}
-
-		// Validate variations.
-		$validator         = new Validator();
-		$validation_result = $validator->validate_variations( $parse_result['data'], $product_id );
-
-		// Log the attempt.
-		$log_id = Database::insert_log(
-			$product_id,
-			'pending',
-			array(
-				'input'      => $input,
-				'variations' => count( $parse_result['data'] ),
-			)
-		);
-
-		// Import variations.
-		$importer      = new Importer( $product_id );
-		$import_result = $importer->import_variations( $parse_result['data'] );
-
-		// Update log.
-		$log_status = $import_result['success'] ? 'success' : 'error';
-		Database::update_log( $log_id, $log_status, $import_result );
-
-		if ( $import_result['success'] ) {
-			$message = sprintf(
-				/* translators: %d: number of variations created */
-				__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
-				count( $import_result['created'] )
-			);
-
-			// Add conversion notice if product was converted.
-			if ( ! empty( $import_result['converted'] ) ) {
-				$message .= ' ' . __( 'The product was automatically converted to a variable product.', 'mkz-bulk-variations' );
+			if ( empty( $input ) || empty( $product_id ) ) {
+				error_log( '[Bulk Variations] Invalid request - empty input or product_id' );
+				wp_send_json_error( array( 'message' => __( 'Invalid request.', 'mkz-bulk-variations' ) ) );
 			}
 
-			wp_send_json_success(
+			// Parse input.
+			error_log( '[Bulk Variations] Starting parse' );
+			$parser        = new Parser();
+			$parse_result  = $parser->parse_input( $input );
+
+			if ( ! $parse_result['success'] ) {
+				error_log( '[Bulk Variations] Parse failed: ' . print_r( $parse_result['errors'], true ) );
+				wp_send_json_error( array( 'errors' => $parse_result['errors'] ) );
+			}
+
+			error_log( '[Bulk Variations] Parse successful, variations count: ' . count( $parse_result['data'] ) );
+
+			// Validate variations.
+			error_log( '[Bulk Variations] Starting validation' );
+			$validator         = new Validator();
+			$validation_result = $validator->validate_variations( $parse_result['data'], $product_id );
+			error_log( '[Bulk Variations] Validation complete' );
+
+			// Log the attempt.
+			error_log( '[Bulk Variations] Inserting database log' );
+			$log_id = Database::insert_log(
+				$product_id,
+				'pending',
 				array(
-					'message'   => $message,
-					'created'   => $import_result['created'],
-					'converted' => ! empty( $import_result['converted'] ),
+					'input'      => $input,
+					'variations' => count( $parse_result['data'] ),
 				)
 			);
-		} else {
+			error_log( "[Bulk Variations] Log ID: {$log_id}" );
+
+			// Import variations.
+			error_log( '[Bulk Variations] Starting import' );
+			$importer      = new Importer( $product_id );
+			$import_result = $importer->import_variations( $parse_result['data'] );
+			error_log( '[Bulk Variations] Import complete: ' . ( $import_result['success'] ? 'SUCCESS' : 'FAILED' ) );
+			error_log( '[Bulk Variations] Import result: ' . print_r( $import_result, true ) );
+
+			// Update log.
+			$log_status = $import_result['success'] ? 'success' : 'error';
+			Database::update_log( $log_id, $log_status, $import_result );
+
+			if ( $import_result['success'] ) {
+				$message = sprintf(
+					/* translators: %d: number of variations created */
+					__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
+					count( $import_result['created'] )
+				);
+
+				// Add conversion notice if product was converted.
+				if ( ! empty( $import_result['converted'] ) ) {
+					$message .= ' ' . __( 'The product was automatically converted to a variable product.', 'mkz-bulk-variations' );
+				}
+
+				error_log( "[Bulk Variations] Success: {$message}" );
+
+				wp_send_json_success(
+					array(
+						'message'   => $message,
+						'created'   => $import_result['created'],
+						'converted' => ! empty( $import_result['converted'] ),
+					)
+				);
+			} else {
+				error_log( '[Bulk Variations] Import failed with errors: ' . print_r( $import_result['errors'], true ) );
+				wp_send_json_error(
+					array(
+						'message' => __( 'Import failed.', 'mkz-bulk-variations' ),
+						'errors'  => $import_result['errors'],
+					)
+				);
+			}
+		} catch ( \Exception $e ) {
+			error_log( '[Bulk Variations] EXCEPTION: ' . $e->getMessage() );
+			error_log( '[Bulk Variations] Stack trace: ' . $e->getTraceAsString() );
 			wp_send_json_error(
 				array(
-					'message' => __( 'Import failed.', 'mkz-bulk-variations' ),
-					'errors'  => $import_result['errors'],
+					'message' => __( 'An unexpected error occurred. Check debug.log for details.', 'mkz-bulk-variations' ),
+					'error'   => $e->getMessage(),
+				)
+			);
+		} catch ( \Throwable $e ) {
+			error_log( '[Bulk Variations] FATAL ERROR: ' . $e->getMessage() );
+			error_log( '[Bulk Variations] Stack trace: ' . $e->getTraceAsString() );
+			wp_send_json_error(
+				array(
+					'message' => __( 'A fatal error occurred. Check debug.log for details.', 'mkz-bulk-variations' ),
+					'error'   => $e->getMessage(),
 				)
 			);
 		}
