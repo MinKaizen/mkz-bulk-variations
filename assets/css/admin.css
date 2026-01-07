@@ -204,6 +204,57 @@
 	color: #991b1b;
 }
 
+.mkz-bv-table tbody tr.mkz-update {
+	background: #fff7ed;
+}
+
+.mkz-bv-table tbody tr.mkz-unchanged {
+	background: #f8fafc;
+	opacity: 0.8;
+}
+
+/* Status badges */
+.mkz-status {
+	display: inline-block;
+	padding: 0.25rem 0.5rem;
+	border-radius: 4px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.mkz-status-new {
+	background: #ecfdf5;
+	color: #065f46;
+}
+
+.mkz-status-update {
+	background: #fff7ed;
+	color: #9a3412;
+}
+
+.mkz-status-unchanged {
+	background: #f1f5f9;
+	color: #475569;
+}
+
+.mkz-status-error {
+	background: #fef2f2;
+	color: #991b1b;
+}
+
+.mkz-status-valid {
+	background: #ecfdf5;
+	color: #065f46;
+}
+
+.mkz-old-price {
+	font-size: 0.75rem;
+	color: var(--mkz-text-secondary);
+	text-decoration: line-through;
+	margin-left: 0.25rem;
+}
+
 /* Select2 Overrides */
 .select2-container--default .select2-selection--single {
 	height: 38px !important;

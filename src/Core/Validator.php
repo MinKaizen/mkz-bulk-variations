@@ -25,6 +25,11 @@ class Validator {
 		$all_valid = true;
 
 		foreach ( $variations as $variation ) {
+			// Skip validation for unchanged variations.
+			if ( $variation->status === 'unchanged' ) {
+				continue;
+			}
+
 			// Validate price.
 			if ( ! $this->validate_price( $variation ) ) {
 				$all_valid = false;
@@ -79,7 +84,15 @@ class Validator {
 		// Check if SKU already exists in WooCommerce.
 		$existing_product_id = wc_get_product_id_by_sku( $variation->sku );
 
-		if ( $existing_product_id && $existing_product_id !== $product_id ) {
+		// If updating an existing variation, allow the SKU if it belongs to this variation.
+		if ( $variation->status === 'update' && $variation->existing_id ) {
+			if ( $existing_product_id && $existing_product_id === $variation->existing_id ) {
+				return true;
+			}
+		}
+
+		// For new variations or different SKUs, check if it conflicts.
+		if ( $existing_product_id && $existing_product_id !== $product_id && $existing_product_id !== $variation->existing_id ) {
 			$variation->add_error(
 				sprintf(
 					/* translators: 1: row number, 2: SKU */
