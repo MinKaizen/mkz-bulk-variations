@@ -157,9 +157,6 @@
 				success: (response) => {
 					this.$btnImport.removeClass('mkz-loading').text('Import Variations');
 
-					// Debug logging
-					console.log('Import response:', response);
-
 					if (response.success) {
 						this.showToast(response.data.message, 'success');
 						// Clear form after success
@@ -169,27 +166,15 @@
 							window.location.reload();
 						}, 2000);
 					} else {
-						// Log error details
-						console.error('Import failed:', response.data);
-						
-						// Show error message
-						const errorMsg = response.data && response.data.message 
-							? response.data.message 
-							: mkzBulkVariations.strings.importError;
-						this.showToast(errorMsg, 'error');
-						
-						// Show detailed errors if available
-						if (response.data && response.data.errors) {
+						this.showToast(response.data.message || mkzBulkVariations.strings.importError, 'error');
+						if (response.data.errors) {
 							this.showErrors(response.data.errors);
-							// Scroll to errors
-							this.$previewErrors[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
 						}
 					}
 				},
-				error: (xhr, status, error) => {
+				error: () => {
 					this.$btnImport.removeClass('mkz-loading').text('Import Variations');
-					console.error('AJAX error:', { xhr, status, error });
-					this.showToast(mkzBulkVariations.strings.importError + ' (' + error + ')', 'error');
+					this.showToast(mkzBulkVariations.strings.importError, 'error');
 				}
 			});
 		},
@@ -232,56 +217,31 @@
 				headers += `<th>${this.escapeHtml(attrName)}</th>`;
 			}
 			
-			headers += '<th>Action</th>';
+			headers += '<th>Status</th>';
 			this.$variationsHeader.html(headers);
 
 			// Build rows
 			variations.forEach((variation) => {
-				let rowClass = '';
-				if (variation.errors && variation.errors.length > 0) {
-					rowClass = 'mkz-error';
-				} else if (variation.status === 'update') {
-					rowClass = 'mkz-update';
-				} else if (variation.status === 'unchanged') {
-					rowClass = 'mkz-unchanged';
-				}
-				
+				let rowClass = variation.errors && variation.errors.length > 0 ? 'mkz-error' : '';
 				let row = `<tr class="${rowClass}">`;
-				
-				// Row number (0 means existing variation not in CSV)
-				if (variation.row_number > 0) {
-					row += `<td>${variation.row_number}</td>`;
-				} else {
-					row += `<td>—</td>`;
-				}
+				row += `<td>${variation.row_number}</td>`;
 				
 				if (firstVar.sku !== null && firstVar.sku !== undefined) {
 					row += `<td>${this.escapeHtml(variation.sku || '')}</td>`;
 				}
 				
-				// Price with old price comparison for updates
-				if (variation.status === 'update' && variation.old_price !== null) {
-					row += `<td>$${parseFloat(variation.price).toFixed(2)} <span class="mkz-old-price">(was $${parseFloat(variation.old_price).toFixed(2)})</span></td>`;
-				} else {
-					row += `<td>$${parseFloat(variation.price).toFixed(2)}</td>`;
-				}
+				row += `<td>$${parseFloat(variation.price).toFixed(2)}</td>`;
 				
 				// Add attribute values
 				for (const attrName in variation.attributes) {
 					row += `<td>${this.escapeHtml(variation.attributes[attrName])}</td>`;
 				}
 				
-				// Add action/status
+				// Add status
 				if (variation.errors && variation.errors.length > 0) {
-					row += `<td><span class="mkz-status mkz-status-error">❌ Error</span></td>`;
-				} else if (variation.status === 'new') {
-					row += `<td><span class="mkz-status mkz-status-new">➕ New</span></td>`;
-				} else if (variation.status === 'update') {
-					row += `<td><span class="mkz-status mkz-status-update">🔄 Update</span></td>`;
-				} else if (variation.status === 'unchanged') {
-					row += `<td><span class="mkz-status mkz-status-unchanged">— Unchanged</span></td>`;
+					row += `<td><span style="color: var(--mkz-error);">❌ Error</span></td>`;
 				} else {
-					row += `<td><span class="mkz-status mkz-status-valid">✓ Valid</span></td>`;
+					row += `<td><span style="color: var(--mkz-success);">✓ Valid</span></td>`;
 				}
 				
 				row += '</tr>';
@@ -305,28 +265,13 @@
 		showErrors: function(errors) {
 			if (!errors || errors.length === 0) return;
 
-			// Ensure preview section is visible
-			if (!this.$previewSection.is(':visible')) {
-				this.$previewSection.show();
-			}
-
 			let html = '<strong>Errors:</strong><ul>';
-			if (Array.isArray(errors)) {
-				errors.forEach((error) => {
-					html += `<li>${this.escapeHtml(error)}</li>`;
-				});
-			} else if (typeof errors === 'object') {
-				// Handle object errors
-				Object.keys(errors).forEach((key) => {
-					html += `<li><strong>${this.escapeHtml(key)}:</strong> ${this.escapeHtml(errors[key])}</li>`;
-				});
-			} else {
-				// Single error string
-				html += `<li>${this.escapeHtml(errors)}</li>`;
-			}
+			errors.forEach((error) => {
+				html += `<li>${this.escapeHtml(error)}</li>`;
+			});
 			html += '</ul>';
 
-			this.$previewErrors.html(html).show();
+			this.$previewErrors.html(html).slideDown();
 		},
 
 		showToast: function(message, type) {

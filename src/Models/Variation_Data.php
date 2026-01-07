@@ -48,39 +48,15 @@ class Variation_Data {
 	public $errors;
 
 	/**
-	 * Import status for this variation (new/update/unchanged)
-	 *
-	 * @var string
-	 */
-	public $status;
-
-	/**
-	 * Existing variation ID if this is an update
-	 *
-	 * @var int|null
-	 */
-	public $existing_id;
-
-	/**
-	 * Old price if this is an update
-	 *
-	 * @var float|null
-	 */
-	public $old_price;
-
-	/**
 	 * Constructor
 	 *
 	 * @param array $data Variation data array.
 	 * @param int   $row_number Row number from input.
 	 */
 	public function __construct( array $data, $row_number ) {
-		$this->row_number  = $row_number;
-		$this->errors      = array();
-		$this->attributes  = array();
-		$this->status      = 'new'; // Default status.
-		$this->existing_id = null;
-		$this->old_price   = null;
+		$this->row_number = $row_number;
+		$this->errors     = array();
+		$this->attributes = array();
 
 		// Extract SKU if present.
 		if ( isset( $data['sku'] ) ) {
@@ -137,14 +113,11 @@ class Variation_Data {
 	 */
 	public function to_array() {
 		return array(
-			'sku'         => $this->sku,
-			'price'       => $this->price,
-			'attributes'  => $this->attributes,
-			'row_number'  => $this->row_number,
-			'errors'      => $this->errors,
-			'status'      => $this->status,
-			'existing_id' => $this->existing_id,
-			'old_price'   => $this->old_price,
+			'sku'        => $this->sku,
+			'price'      => $this->price,
+			'attributes' => $this->attributes,
+			'row_number' => $this->row_number,
+			'errors'     => $this->errors,
 		);
 	}
 }

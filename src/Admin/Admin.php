@@ -204,7 +204,7 @@ class Admin {
 		}
 
 		$parser = new Parser();
-		$result = $parser->parse_input( $input, $product_id );
+		$result = $parser->parse_input( $input );
 
 		if ( ! $result['success'] ) {
 			wp_send_json_error( array( 'errors' => $result['errors'] ) );
@@ -259,64 +259,42 @@ class Admin {
 			wp_send_json_error( array( 'message' => __( 'Invalid request.', 'mkz-bulk-variations' ) ) );
 		}
 
-		// Wrap in try-catch for better error handling.
-		try {
-			// Parse input.
-			$parser        = new Parser();
-			$parse_result  = $parser->parse_input( $input, $product_id );
+		// Parse input.
+		$parser        = new Parser();
+		$parse_result  = $parser->parse_input( $input );
 
-			if ( ! $parse_result['success'] ) {
-				wp_send_json_error( 
-					array( 
-						'message' => __( 'Failed to parse input data.', 'mkz-bulk-variations' ),
-						'errors'  => $parse_result['errors'],
-					) 
-				);
-			}
+		if ( ! $parse_result['success'] ) {
+			wp_send_json_error( array( 'errors' => $parse_result['errors'] ) );
+		}
 
-			// Validate variations.
-			$validator         = new Validator();
-			$validation_result = $validator->validate_variations( $parse_result['data'], $product_id );
+		// Validate variations.
+		$validator         = new Validator();
+		$validation_result = $validator->validate_variations( $parse_result['data'], $product_id );
 
-			// Log the attempt.
-			$log_id = Database::insert_log(
-				$product_id,
-				'pending',
-				array(
-					'input'      => $input,
-					'variations' => count( $parse_result['data'] ),
-				)
+		// Log the attempt.
+		$log_id = Database::insert_log(
+			$product_id,
+			'pending',
+			array(
+				'input'      => $input,
+				'variations' => count( $parse_result['data'] ),
+			)
+		);
+
+		// Import variations.
+		$importer      = new Importer( $product_id );
+		$import_result = $importer->import_variations( $parse_result['data'] );
+
+		// Update log.
+		$log_status = $import_result['success'] ? 'success' : 'error';
+		Database::update_log( $log_id, $log_status, $import_result );
+
+		if ( $import_result['success'] ) {
+			$message = sprintf(
+				/* translators: %d: number of variations created */
+				__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
+				count( $import_result['created'] )
 			);
-
-			// Import variations.
-			$importer      = new Importer( $product_id );
-			$import_result = $importer->import_variations( $parse_result['data'] );
-
-			// Update log.
-			$log_status = $import_result['success'] ? 'success' : 'error';
-			Database::update_log( $log_id, $log_status, $import_result );
-
-			if ( $import_result['success'] ) {
-			$created_count = count( $import_result['created'] );
-			$updated_count = count( $import_result['updated'] );
-
-			$message_parts = array();
-			if ( $created_count > 0 ) {
-				$message_parts[] = sprintf(
-					/* translators: %d: number of variations created */
-					_n( 'Created %d variation', 'Created %d variations', $created_count, 'mkz-bulk-variations' ),
-					$created_count
-				);
-			}
-			if ( $updated_count > 0 ) {
-				$message_parts[] = sprintf(
-					/* translators: %d: number of variations updated */
-					_n( 'Updated %d variation', 'Updated %d variations', $updated_count, 'mkz-bulk-variations' ),
-					$updated_count
-				);
-			}
-
-			$message = implode( '. ', $message_parts ) . '.';
 
 			// Add conversion notice if product was converted.
 			if ( ! empty( $import_result['converted'] ) ) {
@@ -327,7 +305,6 @@ class Admin {
 				array(
 					'message'   => $message,
 					'created'   => $import_result['created'],
-					'updated'   => $import_result['updated'],
 					'converted' => ! empty( $import_result['converted'] ),
 				)
 			);
@@ -336,18 +313,6 @@ class Admin {
 				array(
 					'message' => __( 'Import failed.', 'mkz-bulk-variations' ),
 					'errors'  => $import_result['errors'],
-				)
-			);
-		}
-		} catch ( \Exception $e ) {
-			// Log the exception for debugging.
-			error_log( 'Bulk Variations Import Error: ' . $e->getMessage() );
-			error_log( 'Stack trace: ' . $e->getTraceAsString() );
-			
-			wp_send_json_error(
-				array(
-					'message' => __( 'An error occurred during import.', 'mkz-bulk-variations' ),
-					'errors'  => array( $e->getMessage() ),
 				)
 			);
 		}

@@ -158,7 +158,6 @@ class Importer {
 		$result = array(
 			'success'   => false,
 			'created'   => array(),
-			'updated'   => array(),
 			'errors'    => array(),
 			'converted' => false,
 		);
@@ -192,8 +191,7 @@ class Importer {
 			return $result;
 		}
 
-		// Create or update variations.
-		$result['updated'] = array();
+		// Create variations.
 		foreach ( $variations as $variation_data ) {
 			if ( $variation_data->has_errors() ) {
 				$result['errors'][] = sprintf(
@@ -204,39 +202,20 @@ class Importer {
 				continue;
 			}
 
-			// Skip unchanged variations.
-			if ( $variation_data->status === 'unchanged' ) {
-				continue;
-			}
+			$variation_id = $this->create_variation( $variation_data, $product, $attribute_mapping );
 
-			// Update existing variation or create new one.
-			if ( $variation_data->status === 'update' && $variation_data->existing_id ) {
-				$updated = $this->update_variation( $variation_data, $product, $attribute_mapping );
-				if ( $updated ) {
-					$result['updated'][] = $variation_data->existing_id;
-				} else {
-					$result['errors'][] = sprintf(
-						/* translators: %d: row number */
-						__( 'Failed to update variation for row %d', 'mkz-bulk-variations' ),
-						$variation_data->row_number
-					);
-				}
+			if ( $variation_id ) {
+				$result['created'][] = $variation_id;
 			} else {
-				$variation_id = $this->create_variation( $variation_data, $product, $attribute_mapping );
-
-				if ( $variation_id ) {
-					$result['created'][] = $variation_id;
-				} else {
-					$result['errors'][] = sprintf(
-						/* translators: %d: row number */
-						__( 'Failed to create variation for row %d', 'mkz-bulk-variations' ),
-						$variation_data->row_number
-					);
-				}
+				$result['errors'][] = sprintf(
+					/* translators: %d: row number */
+					__( 'Failed to create variation for row %d', 'mkz-bulk-variations' ),
+					$variation_data->row_number
+				);
 			}
 		}
 
-		$result['success'] = ! empty( $result['created'] ) || ! empty( $result['updated'] );
+		$result['success'] = ! empty( $result['created'] );
 
 		return $result;
 	}
@@ -351,35 +330,6 @@ class Importer {
 		}
 
 		return $term['term_id'];
-	}
-
-	/**
-	 * Update an existing variation
-	 *
-	 * @param Variation_Data $variation_data Variation data.
-	 * @param \WC_Product     $product Parent product.
-	 * @param array          $attribute_mapping Attribute mapping.
-	 * @return bool True on success, false on failure.
-	 */
-	private function update_variation( $variation_data, $product, $attribute_mapping ) {
-		$variation = wc_get_product( $variation_data->existing_id );
-
-		if ( ! $variation || ! is_a( $variation, 'WC_Product_Variation' ) ) {
-			return false;
-		}
-
-		// Update price.
-		$variation->set_regular_price( $variation_data->price );
-
-		// Update SKU if provided.
-		if ( ! empty( $variation_data->sku ) ) {
-			$variation->set_sku( $variation_data->sku );
-		}
-
-		// Save variation.
-		$saved = $variation->save();
-
-		return $saved ? true : false;
 	}
 
 	/**
