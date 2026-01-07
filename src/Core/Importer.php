@@ -40,6 +40,118 @@ class Importer {
 	}
 
 	/**
+	 * Analyze variations to determine what will be created, updated, or unchanged
+	 *
+	 * @param array $variations Array of Variation_Data objects.
+	 * @return array Analysis with 'variations' and 'attributes' breakdown.
+	 */
+	public function analyze_variations( $variations ) {
+		$result = array(
+			'variations' => array(
+				'new'       => 0,
+				'update'    => 0,
+				'unchanged' => 0,
+			),
+			'attributes' => array(
+				'new'       => 0,
+				'update'    => 0,
+				'unchanged' => 0,
+			),
+		);
+
+		// Get parent product.
+		$product = wc_get_product( $this->product_id );
+
+		if ( ! $product ) {
+			return $result;
+		}
+
+		// Analyze attributes.
+		$parser = new Parser();
+		$unique_attributes = $parser->get_unique_attribute_terms( $variations );
+		
+		foreach ( $unique_attributes as $attr_name => $terms ) {
+			$attribute_slug = sanitize_title( $attr_name );
+			$attribute_id = $this->validator->get_existing_attribute_id( $attr_name );
+			
+			if ( $attribute_id ) {
+				// Attribute exists - check if we're adding new terms.
+				$taxonomy = wc_attribute_taxonomy_name( $attribute_slug );
+				if ( empty( $taxonomy ) ) {
+					$taxonomy = 'pa_' . $attribute_slug;
+				}
+				
+				$has_new_terms = false;
+				foreach ( $terms as $term_name ) {
+					$term_id = $this->validator->get_existing_term_id( $term_name, $taxonomy );
+					if ( ! $term_id ) {
+						$has_new_terms = true;
+						break;
+					}
+				}
+				
+				if ( $has_new_terms ) {
+					$result['attributes']['update']++;
+				} else {
+					$result['attributes']['unchanged']++;
+				}
+			} else {
+				// New attribute.
+				$result['attributes']['new']++;
+			}
+		}
+
+		// Build attribute mapping for variation analysis.
+		$attribute_mapping = array();
+		foreach ( $unique_attributes as $attr_name => $terms ) {
+			$attribute_slug = sanitize_title( $attr_name );
+			$taxonomy = wc_attribute_taxonomy_name( $attribute_slug );
+			if ( empty( $taxonomy ) ) {
+				$taxonomy = 'pa_' . $attribute_slug;
+			}
+			$attribute_mapping[ $attr_name ] = $taxonomy;
+		}
+
+		// Analyze variations.
+		foreach ( $variations as $variation_data ) {
+			if ( $variation_data->has_errors() ) {
+				continue;
+			}
+
+			// Build attributes array.
+			$attributes = array();
+			foreach ( $variation_data->attributes as $attr_name => $attr_value ) {
+				if ( isset( $attribute_mapping[ $attr_name ] ) ) {
+					$taxonomy = $attribute_mapping[ $attr_name ];
+					$term = get_term_by( 'name', $attr_value, $taxonomy );
+					if ( $term ) {
+						$attributes[ $taxonomy ] = $term->slug;
+					}
+				}
+			}
+
+			// Check if variation exists.
+			$existing_variation_id = $this->find_variation_by_attributes( $this->product_id, $attributes );
+
+			if ( $existing_variation_id ) {
+				$existing_variation = wc_get_product( $existing_variation_id );
+				if ( $existing_variation ) {
+					$current_price = $existing_variation->get_regular_price();
+					if ( (string) $current_price === (string) $variation_data->price ) {
+						$result['variations']['unchanged']++;
+					} else {
+						$result['variations']['update']++;
+					}
+				}
+			} else {
+				$result['variations']['new']++;
+			}
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Convert product to variable type if needed
 	 *
 	 * @param \WC_Product $product Product object.
@@ -158,7 +270,7 @@ class Importer {
 	 * Import variations
 	 *
 	 * @param array $variations Array of Variation_Data objects.
-	 * @return array Result with 'success', 'created', 'errors'.
+	 * @return array Result with 'success', 'created', 'updated', 'unchanged', 'errors'.
 	 */
 	public function import_variations( $variations ) {
 		error_log( "[Bulk Variations Importer] Starting import for product {$this->product_id}" );
@@ -167,6 +279,8 @@ class Importer {
 		$result = array(
 			'success'   => false,
 			'created'   => array(),
+			'updated'   => array(),
+			'unchanged' => array(),
 			'errors'    => array(),
 			'converted' => false,
 		);
@@ -221,7 +335,7 @@ class Importer {
 			return $result;
 		}
 
-		// Create variations.
+		// Create or update variations.
 		$variation_count = 0;
 		foreach ( $variations as $variation_data ) {
 			$variation_count++;
@@ -238,23 +352,31 @@ class Importer {
 			}
 
 			try {
-				error_log( "[Bulk Variations Importer] Creating variation {$variation_count}/{" . count( $variations ) . "} (row {$variation_data->row_number})" );
-				$variation_id = $this->create_variation( $variation_data, $product, $attribute_mapping );
+				error_log( "[Bulk Variations Importer] Processing variation {$variation_count}/{" . count( $variations ) . "} (row {$variation_data->row_number})" );
+				$operation_result = $this->create_or_update_variation( $variation_data, $product, $attribute_mapping );
 
-				if ( $variation_id ) {
-					error_log( "[Bulk Variations Importer] Variation created successfully: ID {$variation_id}" );
-					$result['created'][] = $variation_id;
+				if ( $operation_result['id'] ) {
+					if ( $operation_result['action'] === 'created' ) {
+						error_log( "[Bulk Variations Importer] Variation created: ID {$operation_result['id']}" );
+						$result['created'][] = $operation_result['id'];
+					} elseif ( $operation_result['action'] === 'updated' ) {
+						error_log( "[Bulk Variations Importer] Variation updated: ID {$operation_result['id']}" );
+						$result['updated'][] = $operation_result['id'];
+					} elseif ( $operation_result['action'] === 'unchanged' ) {
+						error_log( "[Bulk Variations Importer] Variation unchanged: ID {$operation_result['id']}" );
+						$result['unchanged'][] = $operation_result['id'];
+					}
 				} else {
 					$error_msg = sprintf(
 						/* translators: %d: row number */
-						__( 'Failed to create variation for row %d', 'mkz-bulk-variations' ),
+						__( 'Failed to create/update variation for row %d', 'mkz-bulk-variations' ),
 						$variation_data->row_number
 					);
 					error_log( "[Bulk Variations Importer] {$error_msg}" );
 					$result['errors'][] = $error_msg;
 				}
 			} catch ( \Exception $e ) {
-				error_log( "[Bulk Variations Importer] Exception creating variation for row {$variation_data->row_number}: " . $e->getMessage() );
+				error_log( "[Bulk Variations Importer] Exception processing variation for row {$variation_data->row_number}: " . $e->getMessage() );
 				$result['errors'][] = sprintf(
 					/* translators: 1: row number, 2: error message */
 					__( 'Row %1$d error: %2$s', 'mkz-bulk-variations' ),
@@ -264,9 +386,9 @@ class Importer {
 			}
 		}
 
-		$result['success'] = ! empty( $result['created'] );
+		$result['success'] = ! empty( $result['created'] ) || ! empty( $result['updated'] );
 
-		error_log( "[Bulk Variations Importer] Import complete. Created: " . count( $result['created'] ) . ", Errors: " . count( $result['errors'] ) );
+		error_log( "[Bulk Variations Importer] Import complete. Created: " . count( $result['created'] ) . ", Updated: " . count( $result['updated'] ) . ", Unchanged: " . count( $result['unchanged'] ) . ", Errors: " . count( $result['errors'] ) );
 
 		return $result;
 	}
@@ -498,5 +620,130 @@ class Importer {
 		}
 
 		return $variation_id ? $variation_id : false;
+	}
+
+	/**
+	 * Create or update a variation (update if matching attributes exist)
+	 *
+	 * @param Variation_Data $variation_data Variation data.
+	 * @param \WC_Product     $product Parent product.
+	 * @param array          $attribute_mapping Attribute mapping.
+	 * @return array Array with 'id' and 'action' (created|updated|unchanged).
+	 */
+	private function create_or_update_variation( $variation_data, $product, $attribute_mapping ) {
+		// Build the attributes array for comparison.
+		$attributes = array();
+		foreach ( $variation_data->attributes as $attr_name => $attr_value ) {
+			if ( isset( $attribute_mapping[ $attr_name ] ) ) {
+				$taxonomy = $attribute_mapping[ $attr_name ];
+				
+				// Get term slug.
+				$term = get_term_by( 'name', $attr_value, $taxonomy );
+				if ( $term ) {
+					$attributes[ $taxonomy ] = $term->slug;
+				}
+			}
+		}
+
+		// Check if variation with these attributes already exists.
+		$existing_variation_id = $this->find_variation_by_attributes( $this->product_id, $attributes );
+
+		if ( $existing_variation_id ) {
+			// Variation exists - check if we need to update it.
+			error_log( "[Bulk Variations Importer] Found existing variation ID: {$existing_variation_id}" );
+			$existing_variation = wc_get_product( $existing_variation_id );
+			
+			if ( ! $existing_variation ) {
+				error_log( "[Bulk Variations Importer] ERROR: Could not load existing variation {$existing_variation_id}" );
+				return array( 'id' => false, 'action' => 'error' );
+			}
+
+			$current_price = $existing_variation->get_regular_price();
+			$new_price = $variation_data->price;
+
+			// Compare prices (case insensitive for price comparison).
+			if ( (string) $current_price === (string) $new_price ) {
+				error_log( "[Bulk Variations Importer] Variation {$existing_variation_id} price unchanged: {$current_price}" );
+				return array( 'id' => $existing_variation_id, 'action' => 'unchanged' );
+			}
+
+			// Update the price.
+			error_log( "[Bulk Variations Importer] Updating variation {$existing_variation_id} price from {$current_price} to {$new_price}" );
+			$existing_variation->set_regular_price( $new_price );
+			
+			// Update SKU if provided.
+			if ( ! empty( $variation_data->sku ) ) {
+				$existing_variation->set_sku( $variation_data->sku );
+			}
+			
+			$existing_variation->save();
+			
+			return array( 'id' => $existing_variation_id, 'action' => 'updated' );
+		}
+
+		// No existing variation - create new one.
+		error_log( "[Bulk Variations Importer] No existing variation found, creating new one" );
+		$variation_id = $this->create_variation( $variation_data, $product, $attribute_mapping );
+		
+		return array( 
+			'id' => $variation_id, 
+			'action' => $variation_id ? 'created' : 'error' 
+		);
+	}
+
+	/**
+	 * Find a variation by its attributes (case insensitive)
+	 *
+	 * @param int   $product_id Product ID.
+	 * @param array $attributes Attributes array (taxonomy => slug).
+	 * @return int|false Variation ID if found, false otherwise.
+	 */
+	private function find_variation_by_attributes( $product_id, $attributes ) {
+		$product = wc_get_product( $product_id );
+		
+		if ( ! $product || $product->get_type() !== 'variable' ) {
+			return false;
+		}
+
+		$existing_variations = $product->get_available_variations();
+
+		foreach ( $existing_variations as $existing_variation ) {
+			$variation_id = $existing_variation['variation_id'];
+			$variation_obj = wc_get_product( $variation_id );
+			
+			if ( ! $variation_obj ) {
+				continue;
+			}
+
+			$variation_attributes = $variation_obj->get_attributes();
+			
+			// Normalize both arrays for case-insensitive comparison.
+			$normalized_variation_attrs = array();
+			foreach ( $variation_attributes as $key => $value ) {
+				$normalized_variation_attrs[ strtolower( $key ) ] = strtolower( $value );
+			}
+
+			$normalized_search_attrs = array();
+			foreach ( $attributes as $key => $value ) {
+				$normalized_search_attrs[ strtolower( $key ) ] = strtolower( $value );
+			}
+
+			// Check if all attributes match.
+			if ( count( $normalized_variation_attrs ) === count( $normalized_search_attrs ) ) {
+				$match = true;
+				foreach ( $normalized_search_attrs as $key => $value ) {
+					if ( ! isset( $normalized_variation_attrs[ $key ] ) || $normalized_variation_attrs[ $key ] !== $value ) {
+						$match = false;
+						break;
+					}
+				}
+
+				if ( $match ) {
+					return $variation_id;
+				}
+			}
+		}
+
+		return false;
 	}
 }

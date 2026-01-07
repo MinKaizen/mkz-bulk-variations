@@ -26,6 +26,7 @@
 			this.$variationsHeader = $('#mkz-variations-header');
 			this.$variationsBody = $('#mkz-variations-body');
 			this.$attributesBody = $('#mkz-attributes-body');
+			this.$analysisBody = $('#mkz-analysis-body');
 			this.$messageContainer = $('#mkz-message-container');
 			this.previewData = null;
 		},
@@ -186,6 +187,7 @@
 			this.$variationsHeader.empty();
 			this.$variationsBody.empty();
 			this.$attributesBody.empty();
+			this.$analysisBody.empty();
 
 			// Show summary
 			this.$previewSummary.html(data.summary);
@@ -198,6 +200,11 @@
 			// Render attributes table
 			if (data.attributes && data.attributes.length > 0) {
 				this.renderAttributesTable(data.attributes);
+			}
+
+			// Render analysis table
+			if (data.analysis) {
+				this.renderAnalysisTable(data.analysis);
 			}
 		},
 
@@ -260,6 +267,30 @@
 				`;
 				this.$attributesBody.append(row);
 			});
+		},
+
+		renderAnalysisTable: function(analysis) {
+			// Variations row
+			const variationsRow = `
+				<tr>
+					<td><strong>Variations</strong></td>
+					<td>${analysis.variations.new}</td>
+					<td>${analysis.variations.update}</td>
+					<td>${analysis.variations.unchanged}</td>
+				</tr>
+			`;
+			this.$analysisBody.append(variationsRow);
+
+			// Attributes row
+			const attributesRow = `
+				<tr>
+					<td><strong>Attributes</strong></td>
+					<td>${analysis.attributes.new}</td>
+					<td>${analysis.attributes.update}</td>
+					<td>${analysis.attributes.unchanged}</td>
+				</tr>
+			`;
+			this.$analysisBody.append(attributesRow);
 		},
 
 		showErrors: function(errors) {

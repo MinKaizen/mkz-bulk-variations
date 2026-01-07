@@ -204,6 +204,29 @@
 	color: #991b1b;
 }
 
+/* Analysis Table Styling */
+#mkz-analysis-table {
+	max-width: 600px;
+}
+
+#mkz-analysis-table td {
+	text-align: center;
+	font-weight: 500;
+}
+
+#mkz-analysis-table td:first-child {
+	text-align: left;
+	font-weight: 600;
+}
+
+#mkz-analysis-table tbody tr {
+	background: var(--mkz-bg-secondary);
+}
+
+#mkz-analysis-table tbody tr:hover {
+	background: #e2e8f0;
+}
+
 /* Select2 Overrides */
 .select2-container--default .select2-selection--single {
 	height: 38px !important;

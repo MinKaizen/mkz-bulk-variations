@@ -96,26 +96,42 @@ if ( ! defined( 'ABSPATH' ) ) {
 				</table>
 			</div>
 
-			<!-- Attributes Preview Table -->
-			<div class="mkz-bv-table-container">
-				<h3><?php esc_html_e( 'Attributes Summary', 'mkz-bulk-variations' ); ?></h3>
-				<table id="mkz-attributes-table" class="mkz-bv-table">
-					<thead>
-						<tr>
-							<th><?php esc_html_e( 'Attribute Name', 'mkz-bulk-variations' ); ?></th>
-							<th><?php esc_html_e( 'Terms', 'mkz-bulk-variations' ); ?></th>
-							<th><?php esc_html_e( 'Count', 'mkz-bulk-variations' ); ?></th>
-						</tr>
-					</thead>
-					<tbody id="mkz-attributes-body"></tbody>
-				</table>
-			</div>
+		<!-- Attributes Preview Table -->
+		<div class="mkz-bv-table-container">
+			<h3><?php esc_html_e( 'Attributes Summary', 'mkz-bulk-variations' ); ?></h3>
+			<table id="mkz-attributes-table" class="mkz-bv-table">
+				<thead>
+					<tr>
+						<th><?php esc_html_e( 'Attribute Name', 'mkz-bulk-variations' ); ?></th>
+						<th><?php esc_html_e( 'Terms', 'mkz-bulk-variations' ); ?></th>
+						<th><?php esc_html_e( 'Count', 'mkz-bulk-variations' ); ?></th>
+					</tr>
+				</thead>
+				<tbody id="mkz-attributes-body"></tbody>
+			</table>
+		</div>
 
-			<div class="mkz-bv-actions">
-				<button type="button" id="mkz-btn-import" class="button button-primary button-large">
-					<?php esc_html_e( 'Import Variations', 'mkz-bulk-variations' ); ?>
-				</button>
-			</div>
+		<!-- Analysis Table -->
+		<div class="mkz-bv-table-container">
+			<h3><?php esc_html_e( 'Import Analysis', 'mkz-bulk-variations' ); ?></h3>
+			<table id="mkz-analysis-table" class="mkz-bv-table">
+				<thead>
+					<tr>
+						<th><?php esc_html_e( 'Type', 'mkz-bulk-variations' ); ?></th>
+						<th><?php esc_html_e( 'New', 'mkz-bulk-variations' ); ?></th>
+						<th><?php esc_html_e( 'Update', 'mkz-bulk-variations' ); ?></th>
+						<th><?php esc_html_e( 'Unchanged', 'mkz-bulk-variations' ); ?></th>
+					</tr>
+				</thead>
+				<tbody id="mkz-analysis-body"></tbody>
+			</table>
+		</div>
+
+		<div class="mkz-bv-actions">
+			<button type="button" id="mkz-btn-import" class="button button-primary button-large">
+				<?php esc_html_e( 'Import Variations', 'mkz-bulk-variations' ); ?>
+			</button>
+		</div>
 		</div>
 
 		<!-- Success/Error Messages -->

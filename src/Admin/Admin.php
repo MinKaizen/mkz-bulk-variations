@@ -214,6 +214,10 @@ class Admin {
 		$validator         = new Validator();
 		$validation_result = $validator->validate_variations( $result['data'], $product_id );
 
+		// Analyze what will be created/updated/unchanged.
+		$importer = new Importer( $product_id );
+		$analysis = $importer->analyze_variations( $result['data'] );
+
 		// Get attribute summary.
 		$unique_terms = $parser->get_unique_attribute_terms( $result['data'] );
 
@@ -236,6 +240,7 @@ class Admin {
 			array(
 				'variations' => $variations_preview,
 				'attributes' => $attributes_preview,
+				'analysis'   => $analysis,
 				'summary'    => sprintf(
 					/* translators: 1: variation count, 2: attribute count */
 					__( '%1$d variations and %2$d attributes will be imported.', 'mkz-bulk-variations' ),
