@@ -153,13 +153,6 @@ class Admin {
 			'posts_per_page' => 20,
 			's'              => $search,
 			'post_status'    => 'publish',
-			'tax_query'      => array(
-				array(
-					'taxonomy' => 'product_type',
-					'field'    => 'slug',
-					'terms'    => 'variable',
-				),
-			),
 		);
 
 		$query   = new \WP_Query( $args );
@@ -168,9 +161,23 @@ class Admin {
 		if ( $query->have_posts() ) {
 			while ( $query->have_posts() ) {
 				$query->the_post();
+				$product = wc_get_product( get_the_ID() );
+				$type    = $product ? $product->get_type() : 'unknown';
+				
+				// Show product type indicator.
+				$type_label = '';
+				if ( $type === 'variable' ) {
+					$type_label = ' ✓';
+				} elseif ( in_array( $type, array( 'simple', 'grouped', 'external' ), true ) ) {
+					$type_label = ' (will convert to variable)';
+				}
+				
+				// Decode HTML entities in product title.
+				$title = html_entity_decode( get_the_title(), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				
 				$results[] = array(
 					'id'   => get_the_ID(),
-					'text' => get_the_title() . ' (#' . get_the_ID() . ')',
+					'text' => $title . ' (#' . get_the_ID() . ')' . $type_label,
 				);
 			}
 			wp_reset_postdata();
@@ -283,14 +290,22 @@ class Admin {
 		Database::update_log( $log_id, $log_status, $import_result );
 
 		if ( $import_result['success'] ) {
+			$message = sprintf(
+				/* translators: %d: number of variations created */
+				__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
+				count( $import_result['created'] )
+			);
+
+			// Add conversion notice if product was converted.
+			if ( ! empty( $import_result['converted'] ) ) {
+				$message .= ' ' . __( 'The product was automatically converted to a variable product.', 'mkz-bulk-variations' );
+			}
+
 			wp_send_json_success(
 				array(
-					'message' => sprintf(
-						/* translators: %d: number of variations created */
-						__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
-						count( $import_result['created'] )
-					),
-					'created' => $import_result['created'],
+					'message'   => $message,
+					'created'   => $import_result['created'],
+					'converted' => ! empty( $import_result['converted'] ),
 				)
 			);
 		} else {

@@ -40,6 +40,115 @@ class Importer {
 	}
 
 	/**
+	 * Convert product to variable type if needed
+	 *
+	 * @param \WC_Product $product Product object.
+	 * @return bool|WP_Error True if converted, false if already variable, WP_Error on failure.
+	 */
+	private function convert_to_variable_product( $product ) {
+		$current_type = $product->get_type();
+
+		// Already variable - no conversion needed.
+		if ( $current_type === 'variable' ) {
+			return false;
+		}
+
+		// Check if product type can be converted.
+		$convertible_types = array( 'simple', 'grouped', 'external' );
+		if ( ! in_array( $current_type, $convertible_types, true ) ) {
+			return new \WP_Error(
+				'invalid_product_type',
+				sprintf(
+					/* translators: %s: product type */
+					__( 'Cannot convert %s product to variable product.', 'mkz-bulk-variations' ),
+					$current_type
+				)
+			);
+		}
+
+		// Store original product data we want to preserve.
+		$preserved_data = array(
+			'name'             => $product->get_name(),
+			'slug'             => $product->get_slug(),
+			'description'      => $product->get_description(),
+			'short_description' => $product->get_short_description(),
+			'sku'              => $product->get_sku(),
+			'regular_price'    => $product->get_regular_price(),
+			'sale_price'       => $product->get_sale_price(),
+			'tax_status'       => $product->get_tax_status(),
+			'tax_class'        => $product->get_tax_class(),
+			'manage_stock'     => $product->get_manage_stock(),
+			'stock_quantity'   => $product->get_stock_quantity(),
+			'stock_status'     => $product->get_stock_status(),
+			'backorders'       => $product->get_backorders(),
+			'sold_individually' => $product->get_sold_individually(),
+			'weight'           => $product->get_weight(),
+			'length'           => $product->get_length(),
+			'width'            => $product->get_width(),
+			'height'           => $product->get_height(),
+			'reviews_allowed'  => $product->get_reviews_allowed(),
+			'purchase_note'    => $product->get_purchase_note(),
+			'menu_order'       => $product->get_menu_order(),
+			'category_ids'     => $product->get_category_ids(),
+			'tag_ids'          => $product->get_tag_ids(),
+			'image_id'         => $product->get_image_id(),
+			'gallery_image_ids' => $product->get_gallery_image_ids(),
+		);
+
+		// Remove product type taxonomy term.
+		wp_remove_object_terms( $this->product_id, $current_type, 'product_type' );
+
+		// Set new product type.
+		wp_set_object_terms( $this->product_id, 'variable', 'product_type' );
+
+		// Clean product cache.
+		clean_post_cache( $this->product_id );
+		wc_delete_product_transients( $this->product_id );
+
+		// Get fresh product object as variable product.
+		$variable_product = wc_get_product( $this->product_id );
+
+		if ( ! $variable_product || $variable_product->get_type() !== 'variable' ) {
+			return new \WP_Error(
+				'conversion_failed',
+				__( 'Failed to convert product to variable type.', 'mkz-bulk-variations' )
+			);
+		}
+
+		// Restore preserved data.
+		$variable_product->set_name( $preserved_data['name'] );
+		$variable_product->set_slug( $preserved_data['slug'] );
+		$variable_product->set_description( $preserved_data['description'] );
+		$variable_product->set_short_description( $preserved_data['short_description'] );
+		$variable_product->set_tax_status( $preserved_data['tax_status'] );
+		$variable_product->set_tax_class( $preserved_data['tax_class'] );
+		$variable_product->set_manage_stock( $preserved_data['manage_stock'] );
+		$variable_product->set_stock_quantity( $preserved_data['stock_quantity'] );
+		$variable_product->set_stock_status( $preserved_data['stock_status'] );
+		$variable_product->set_backorders( $preserved_data['backorders'] );
+		$variable_product->set_sold_individually( $preserved_data['sold_individually'] );
+		$variable_product->set_weight( $preserved_data['weight'] );
+		$variable_product->set_length( $preserved_data['length'] );
+		$variable_product->set_width( $preserved_data['width'] );
+		$variable_product->set_height( $preserved_data['height'] );
+		$variable_product->set_reviews_allowed( $preserved_data['reviews_allowed'] );
+		$variable_product->set_purchase_note( $preserved_data['purchase_note'] );
+		$variable_product->set_menu_order( $preserved_data['menu_order'] );
+		$variable_product->set_category_ids( $preserved_data['category_ids'] );
+		$variable_product->set_tag_ids( $preserved_data['tag_ids'] );
+		$variable_product->set_image_id( $preserved_data['image_id'] );
+		$variable_product->set_gallery_image_ids( $preserved_data['gallery_image_ids'] );
+
+		// Note: SKU is intentionally not set on parent variable product
+		// as it will cause conflicts with variation SKUs.
+		// Regular/sale prices also not set as they should come from variations.
+
+		$variable_product->save();
+
+		return true;
+	}
+
+	/**
 	 * Import variations
 	 *
 	 * @param array $variations Array of Variation_Data objects.
@@ -47,17 +156,31 @@ class Importer {
 	 */
 	public function import_variations( $variations ) {
 		$result = array(
-			'success' => false,
-			'created' => array(),
-			'errors'  => array(),
+			'success'   => false,
+			'created'   => array(),
+			'errors'    => array(),
+			'converted' => false,
 		);
 
 		// Get parent product.
 		$product = wc_get_product( $this->product_id );
 
-		if ( ! $product || $product->get_type() !== 'variable' ) {
-			$result['errors'][] = __( 'Product must be a variable product.', 'mkz-bulk-variations' );
+		if ( ! $product ) {
+			$result['errors'][] = __( 'Product not found.', 'mkz-bulk-variations' );
 			return $result;
+		}
+
+		// Convert product to variable if needed.
+		$conversion_result = $this->convert_to_variable_product( $product );
+		if ( is_wp_error( $conversion_result ) ) {
+			$result['errors'][] = $conversion_result->get_error_message();
+			return $result;
+		}
+
+		if ( $conversion_result === true ) {
+			$result['converted'] = true;
+			// Reload product after conversion.
+			$product = wc_get_product( $this->product_id );
 		}
 
 		// Get or create attributes for the product.
