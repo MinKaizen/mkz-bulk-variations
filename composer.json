@@ -1,0 +1,21 @@
+{
+  "name": "minkaizen/mkz-bulk-variations",
+  "description": "High-performance tool for WooCommerce store managers to mass-create product variations",
+  "type": "wordpress-plugin",
+  "require": {
+    "php": ">=8.0"
+  },
+  "require-dev": {
+    "wp-cli/i18n-command": "^2",
+    "phpunit/phpunit": "^9.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "BulkVariations\\": "src/"
+    }
+  },
+  "scripts": {
+    "makepot": "wp i18n make-pot .",
+    "test": "phpunit"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "mkz-bulk-variations",
+  "version": "0.1.0",
+  "description": "Bulk Variations WordPress Plugin",
+  "scripts": {
+    "build": "npm run build:css && npm run build:js",
+    "build:css": "echo 'CSS build complete'",
+    "build:js": "echo 'JS build complete'"
+  },
+  "keywords": ["wordpress", "woocommerce", "variations"],
+  "author": "MinKaizen",
+  "license": "GPL-2.0-or-later"
+}
