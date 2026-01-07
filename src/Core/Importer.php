@@ -386,7 +386,8 @@ class Importer {
 			}
 		}
 
-		$result['success'] = ! empty( $result['created'] ) || ! empty( $result['updated'] );
+		// Success if we created, updated, or found unchanged variations (and no errors)
+		$result['success'] = ( ! empty( $result['created'] ) || ! empty( $result['updated'] ) || ! empty( $result['unchanged'] ) ) && empty( $result['errors'] );
 
 		error_log( "[Bulk Variations Importer] Import complete. Created: " . count( $result['created'] ) . ", Updated: " . count( $result['updated'] ) . ", Unchanged: " . count( $result['unchanged'] ) . ", Errors: " . count( $result['errors'] ) );
 

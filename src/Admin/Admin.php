@@ -311,36 +311,65 @@ class Admin {
 			$log_status = $import_result['success'] ? 'success' : 'error';
 			Database::update_log( $log_id, $log_status, $import_result );
 
-			if ( $import_result['success'] ) {
+		if ( $import_result['success'] ) {
+			$created_count = count( $import_result['created'] );
+			$updated_count = count( $import_result['updated'] );
+			$unchanged_count = count( $import_result['unchanged'] );
+
+			// Build appropriate success message based on what happened.
+			if ( $created_count > 0 && $updated_count > 0 ) {
 				$message = sprintf(
-					/* translators: %d: number of variations created */
-					__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
-					count( $import_result['created'] )
+					/* translators: 1: created count, 2: updated count */
+					__( 'Successfully created %1$d variations and updated %2$d variations.', 'mkz-bulk-variations' ),
+					$created_count,
+					$updated_count
 				);
-
-				// Add conversion notice if product was converted.
-				if ( ! empty( $import_result['converted'] ) ) {
-					$message .= ' ' . __( 'The product was automatically converted to a variable product.', 'mkz-bulk-variations' );
-				}
-
-				error_log( "[Bulk Variations] Success: {$message}" );
-
-				wp_send_json_success(
-					array(
-						'message'   => $message,
-						'created'   => $import_result['created'],
-						'converted' => ! empty( $import_result['converted'] ),
-					)
+			} elseif ( $created_count > 0 ) {
+				$message = sprintf(
+					/* translators: %d: created count */
+					__( 'Successfully created %d variations.', 'mkz-bulk-variations' ),
+					$created_count
+				);
+			} elseif ( $updated_count > 0 ) {
+				$message = sprintf(
+					/* translators: %d: updated count */
+					__( 'Successfully updated %d variations.', 'mkz-bulk-variations' ),
+					$updated_count
 				);
 			} else {
-				error_log( '[Bulk Variations] Import failed with errors: ' . print_r( $import_result['errors'], true ) );
-				wp_send_json_error(
-					array(
-						'message' => __( 'Import failed.', 'mkz-bulk-variations' ),
-						'errors'  => $import_result['errors'],
-					)
+				// All unchanged - nothing to do.
+				$message = sprintf(
+					/* translators: %d: unchanged count */
+					__( 'All %d variations are already up to date. No changes needed.', 'mkz-bulk-variations' ),
+					$unchanged_count
 				);
 			}
+
+			// Add conversion notice if product was converted.
+			if ( ! empty( $import_result['converted'] ) ) {
+				$message .= ' ' . __( 'The product was automatically converted to a variable product.', 'mkz-bulk-variations' );
+			}
+
+			error_log( "[Bulk Variations] Success: {$message}" );
+
+			wp_send_json_success(
+				array(
+					'message'   => $message,
+					'created'   => $import_result['created'],
+					'updated'   => $import_result['updated'],
+					'unchanged' => $import_result['unchanged'],
+					'converted' => ! empty( $import_result['converted'] ),
+				)
+			);
+		} else {
+			error_log( '[Bulk Variations] Import failed with errors: ' . print_r( $import_result['errors'], true ) );
+			wp_send_json_error(
+				array(
+					'message' => __( 'Import failed.', 'mkz-bulk-variations' ),
+					'errors'  => $import_result['errors'],
+				)
+			);
+		}
 		} catch ( \Exception $e ) {
 			error_log( '[Bulk Variations] EXCEPTION: ' . $e->getMessage() );
 			error_log( '[Bulk Variations] Stack trace: ' . $e->getTraceAsString() );
