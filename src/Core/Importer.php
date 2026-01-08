@@ -158,17 +158,18 @@ class Importer {
 	 * @return bool|WP_Error True if converted, false if already variable, WP_Error on failure.
 	 */
 	private function convert_to_variable_product( $product ) {
+		$product_id   = $this->product_id;
 		$current_type = $product->get_type();
 
 		error_log( "[Bulk Variations Importer] Current product type: {$current_type}" );
 
-		// Already variable - no conversion needed.
+		// 1. Already variable - no conversion needed.
 		if ( $current_type === 'variable' ) {
 			error_log( '[Bulk Variations Importer] Product is already variable, skipping conversion' );
 			return false;
 		}
 
-		// Check if product type can be converted.
+		// 2. Check if product type can be converted.
 		$convertible_types = array( 'simple', 'grouped', 'external' );
 		if ( ! in_array( $current_type, $convertible_types, true ) ) {
 			error_log( "[Bulk Variations Importer] Cannot convert {$current_type} to variable product" );
@@ -182,86 +183,47 @@ class Importer {
 			);
 		}
 
-		error_log( "[Bulk Variations Importer] Converting {$current_type} product to variable" );
+		error_log( "[Bulk Variations Importer] Converting product ID {$product_id} from {$current_type} to variable" );
 
-		// Store original product data we want to preserve.
-		$preserved_data = array(
-			'name'             => $product->get_name(),
-			'slug'             => $product->get_slug(),
-			'description'      => $product->get_description(),
-			'short_description' => $product->get_short_description(),
-			'sku'              => $product->get_sku(),
-			'regular_price'    => $product->get_regular_price(),
-			'sale_price'       => $product->get_sale_price(),
-			'tax_status'       => $product->get_tax_status(),
-			'tax_class'        => $product->get_tax_class(),
-			'manage_stock'     => $product->get_manage_stock(),
-			'stock_quantity'   => $product->get_stock_quantity(),
-			'stock_status'     => $product->get_stock_status(),
-			'backorders'       => $product->get_backorders(),
-			'sold_individually' => $product->get_sold_individually(),
-			'weight'           => $product->get_weight(),
-			'length'           => $product->get_length(),
-			'width'            => $product->get_width(),
-			'height'           => $product->get_height(),
-			'reviews_allowed'  => $product->get_reviews_allowed(),
-			'purchase_note'    => $product->get_purchase_note(),
-			'menu_order'       => $product->get_menu_order(),
-			'category_ids'     => $product->get_category_ids(),
-			'tag_ids'          => $product->get_tag_ids(),
-			'image_id'         => $product->get_image_id(),
-			'gallery_image_ids' => $product->get_gallery_image_ids(),
-		);
+		// 3. Update the Product Type Term in the database
+		// This is the core database change.
+		$term_update = wp_set_object_terms( $product_id, 'variable', 'product_type' );
 
-		// Remove product type taxonomy term.
-		wp_remove_object_terms( $this->product_id, $current_type, 'product_type' );
+		if ( is_wp_error( $term_update ) ) {
+			return $term_update;
+		}
 
-		// Set new product type.
-		wp_set_object_terms( $this->product_id, 'variable', 'product_type' );
+		// 4. Clear ALL caches to ensure WooCommerce fetches fresh data
+		// This forces the Data Store to see the new 'variable' term
+		wp_cache_delete( $product_id, 'products' );
+		clean_post_cache( $product_id );
+		wc_delete_product_transients( $product_id );
 
-		// Clean product cache.
-		clean_post_cache( $this->product_id );
-		wc_delete_product_transients( $this->product_id );
+		// 5. Re-instantiate the product object
+		// By calling wc_get_product again, WC_Product_Factory detects the new 'variable' term
+		$variable_product = wc_get_product( $product_id );
 
-		// Get fresh product object as variable product.
-		$variable_product = wc_get_product( $this->product_id );
+		// 6. Validation Check
+		if ( ! $variable_product || ! $variable_product->is_type( 'variable' ) ) {
+			// Final fallback: Manually force the variable class if the factory failed
+			$variable_product = new \WC_Product_Variable( $product_id );
+		}
 
-		if ( ! $variable_product || $variable_product->get_type() !== 'variable' ) {
+		if ( ! $variable_product || ! $variable_product->is_type( 'variable' ) ) {
 			return new \WP_Error(
 				'conversion_failed',
-				__( 'Failed to convert product to variable type.', 'mkz-bulk-variations' )
+				__( 'Failed to convert product to variable type in the Data Store.', 'mkz-bulk-variations' )
 			);
 		}
 
-		// Restore preserved data.
-		$variable_product->set_name( $preserved_data['name'] );
-		$variable_product->set_slug( $preserved_data['slug'] );
-		$variable_product->set_description( $preserved_data['description'] );
-		$variable_product->set_short_description( $preserved_data['short_description'] );
-		$variable_product->set_tax_status( $preserved_data['tax_status'] );
-		$variable_product->set_tax_class( $preserved_data['tax_class'] );
-		$variable_product->set_manage_stock( $preserved_data['manage_stock'] );
-		$variable_product->set_stock_quantity( $preserved_data['stock_quantity'] );
-		$variable_product->set_stock_status( $preserved_data['stock_status'] );
-		$variable_product->set_backorders( $preserved_data['backorders'] );
-		$variable_product->set_sold_individually( $preserved_data['sold_individually'] );
-		$variable_product->set_weight( $preserved_data['weight'] );
-		$variable_product->set_length( $preserved_data['length'] );
-		$variable_product->set_width( $preserved_data['width'] );
-		$variable_product->set_height( $preserved_data['height'] );
-		$variable_product->set_reviews_allowed( $preserved_data['reviews_allowed'] );
-		$variable_product->set_purchase_note( $preserved_data['purchase_note'] );
-		$variable_product->set_menu_order( $preserved_data['menu_order'] );
-		$variable_product->set_category_ids( $preserved_data['category_ids'] );
-		$variable_product->set_tag_ids( $preserved_data['tag_ids'] );
-		$variable_product->set_image_id( $preserved_data['image_id'] );
-		$variable_product->set_gallery_image_ids( $preserved_data['gallery_image_ids'] );
-
-		// Note: SKU is intentionally not set on parent variable product
-		// as it will cause conflicts with variation SKUs.
-		// Regular/sale prices also not set as they should come from variations.
-
+		// 7. Syncing preserved data (Optional but recommended)
+		// Since it's the same ID, standard fields like name/description usually persist
+		// automatically in the DB, but we save to be sure the object is synced.
+		$variable_product->set_sku( $product->get_sku() );
+		$variable_product->set_manage_stock( $product->get_manage_stock() );
 		$variable_product->save();
+
+		error_log( "[Bulk Variations Importer] Product ID {$product_id} successfully converted to variable." );
 
 		return true;
 	}
