@@ -420,32 +420,44 @@ class Importer {
 				);
 			}
 
-			// Create or get terms for this attribute.
-			$term_ids = array();
-			foreach ( $terms as $term_name ) {
-				$term_id = $this->get_or_create_term( $term_name, $taxonomy );
-				if ( $term_id ) {
-					error_log( "[Bulk Variations Importer] Term '{$term_name}' created/found with ID: {$term_id}" );
-					$term_ids[] = $term_id;
-				} else {
-					error_log( "[Bulk Variations Importer] ERROR: Failed to create/get term: {$term_name} for {$taxonomy}" );
-				}
+		// Create or get terms for this attribute.
+		$new_term_ids = array();
+		foreach ( $terms as $term_name ) {
+			$term_id = $this->get_or_create_term( $term_name, $taxonomy );
+			if ( $term_id ) {
+				error_log( "[Bulk Variations Importer] Term '{$term_name}' created/found with ID: {$term_id}" );
+				$new_term_ids[] = $term_id;
+			} else {
+				error_log( "[Bulk Variations Importer] ERROR: Failed to create/get term: {$term_name} for {$taxonomy}" );
 			}
+		}
 
-			// Set terms for the product.
-			error_log( "[Bulk Variations Importer] Setting " . count( $term_ids ) . " terms for taxonomy {$taxonomy}" );
-			wp_set_object_terms( $this->product_id, $term_ids, $taxonomy );
+		// Get existing terms for this product and taxonomy to merge with new terms.
+		$existing_term_ids = array();
+		$existing_terms = wp_get_object_terms( $this->product_id, $taxonomy, array( 'fields' => 'ids' ) );
+		if ( ! is_wp_error( $existing_terms ) && is_array( $existing_terms ) ) {
+			$existing_term_ids = $existing_terms;
+			error_log( "[Bulk Variations Importer] Found " . count( $existing_term_ids ) . " existing terms for {$taxonomy}" );
+		}
 
-			// Add to product attributes.
-			$attribute = new \WC_Product_Attribute();
-			$attribute->set_id( $attribute_id );
-			$attribute->set_name( $taxonomy );
-			$attribute->set_options( $term_ids );
-			$attribute->set_visible( true );
-			$attribute->set_variation( true );
+		// Merge existing and new term IDs (remove duplicates).
+		$all_term_ids = array_unique( array_merge( $existing_term_ids, $new_term_ids ) );
+		error_log( "[Bulk Variations Importer] Total terms after merge: " . count( $all_term_ids ) . " (existing: " . count( $existing_term_ids ) . ", new: " . count( $new_term_ids ) . ")" );
 
-			$product_attributes[] = $attribute;
-			$attribute_mapping[ $attr_name ] = $taxonomy;
+		// Set terms for the product (this will now include both old and new terms).
+		error_log( "[Bulk Variations Importer] Setting " . count( $all_term_ids ) . " terms for taxonomy {$taxonomy}" );
+		wp_set_object_terms( $this->product_id, $all_term_ids, $taxonomy );
+
+		// Add to product attributes.
+		$attribute = new \WC_Product_Attribute();
+		$attribute->set_id( $attribute_id );
+		$attribute->set_name( $taxonomy );
+		$attribute->set_options( $all_term_ids );
+		$attribute->set_visible( true );
+		$attribute->set_variation( true );
+
+		$product_attributes[] = $attribute;
+		$attribute_mapping[ $attr_name ] = $taxonomy;
 
 			error_log( "[Bulk Variations Importer] Attribute {$attr_name} mapped to {$taxonomy}" );
 		}
