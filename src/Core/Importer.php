@@ -46,7 +46,7 @@ class Importer {
 	 * @return array Analysis with 'variations' and 'attributes' breakdown.
 	 */
 	public function analyze_variations( $variations ) {
-		$result = array(
+		$analysis = array(
 			'variations' => array(
 				'new'       => 0,
 				'update'    => 0,
@@ -59,96 +59,199 @@ class Importer {
 			),
 		);
 
-		// Get parent product.
+		// Get the product.
 		$product = wc_get_product( $this->product_id );
 
-		if ( ! $product ) {
-			return $result;
-		}
+		if ( ! $product || $product->get_type() !== 'variable' ) {
+			// If not a variable product, all variations will be new.
+			$analysis['variations']['new'] = count( $variations );
 
-		// Analyze attributes.
-		$parser = new Parser();
-		$unique_attributes = $parser->get_unique_attribute_terms( $variations );
+			// Count unique attributes from input as all new.
+			$parser = new Parser();
+			$unique_attributes = $parser->get_unique_attribute_terms( $variations );
+			$analysis['attributes']['new'] = count( $unique_attributes );
 
-		foreach ( $unique_attributes as $attr_name => $terms ) {
-			$attribute_slug = sanitize_title( $attr_name );
-			$attribute_id = $this->validator->get_existing_attribute_id( $attr_name );
-
-			if ( $attribute_id ) {
-				// Attribute exists - check if we're adding new terms.
-				$taxonomy = wc_attribute_taxonomy_name( $attribute_slug );
-				if ( empty( $taxonomy ) ) {
-					$taxonomy = 'pa_' . $attribute_slug;
-				}
-
-				$has_new_terms = false;
-				foreach ( $terms as $term_name ) {
-					$term_id = $this->validator->get_existing_term_id( $term_name, $taxonomy );
-					if ( ! $term_id ) {
-						$has_new_terms = true;
-						break;
-					}
-				}
-
-				if ( $has_new_terms ) {
-					$result['attributes']['update']++;
-				} else {
-					$result['attributes']['unchanged']++;
-				}
-			} else {
-				// New attribute.
-				$result['attributes']['new']++;
-			}
-		}
-
-		// Build attribute mapping for variation analysis.
-		$attribute_mapping = array();
-		foreach ( $unique_attributes as $attr_name => $terms ) {
-			$attribute_slug = sanitize_title( $attr_name );
-			$taxonomy = wc_attribute_taxonomy_name( $attribute_slug );
-			if ( empty( $taxonomy ) ) {
-				$taxonomy = 'pa_' . $attribute_slug;
-			}
-			$attribute_mapping[ $attr_name ] = $taxonomy;
+			return $analysis;
 		}
 
 		// Analyze variations.
+		$this->analyze_variation_changes( $variations, $product, $analysis );
+
+		// Analyze attributes.
+		$this->analyze_attribute_changes( $variations, $product, $analysis );
+
+		return $analysis;
+	}
+
+	/**
+	 * Analyze variation changes
+	 *
+	 * @param array       $variations Array of Variation_Data objects.
+	 * @param \WC_Product $product Product object.
+	 * @param array       &$analysis Analysis array to update.
+	 */
+	private function analyze_variation_changes( $variations, $product, &$analysis ) {
+		// Get all active existing variations (only published, exclude trash and draft).
+		$existing_variation_ids = $product->get_children();
+		
+		// Filter to only include published variations.
+		$existing_variations = array();
+		foreach ( $existing_variation_ids as $variation_id ) {
+			$variation = wc_get_product( $variation_id );
+			if ( $variation && $variation->get_status() === 'publish' ) {
+				$existing_variations[] = $variation_id;
+			}
+		}
+
+		error_log( '[Bulk Variations Analyzer] Found ' . count( $existing_variations ) . ' published variations out of ' . count( $existing_variation_ids ) . ' total children' );
+
+		// Track which existing variations will be matched.
+		$matched_variation_ids = array();
+
 		foreach ( $variations as $variation_data ) {
 			if ( $variation_data->has_errors() ) {
 				continue;
 			}
 
-			// Build attributes array.
-			$attributes = array();
-			foreach ( $variation_data->attributes as $attr_name => $attr_value ) {
-				if ( isset( $attribute_mapping[ $attr_name ] ) ) {
-					$taxonomy = $attribute_mapping[ $attr_name ];
-					$term = get_term_by( 'name', $attr_value, $taxonomy );
-					if ( $term ) {
-						$attributes[ $taxonomy ] = $term->slug;
-					}
-				}
-			}
-
-			// Check if variation exists.
-			$existing_variation_id = $this->find_variation_by_attributes( $this->product_id, $attributes );
+			// Try to find a matching existing variation.
+			$existing_variation_id = $this->find_matching_variation_for_analysis( $existing_variations, $variation_data );
 
 			if ( $existing_variation_id ) {
+				// Variation exists - check if price differs.
 				$existing_variation = wc_get_product( $existing_variation_id );
+
 				if ( $existing_variation ) {
 					$current_price = $existing_variation->get_regular_price();
-					if ( (string) $current_price === (string) $variation_data->price ) {
-						$result['variations']['unchanged']++;
+					$new_price = $variation_data->price;
+
+					if ( (string) $current_price === (string) $new_price ) {
+						$analysis['variations']['unchanged']++;
 					} else {
-						$result['variations']['update']++;
+						$analysis['variations']['update']++;
 					}
+
+					$matched_variation_ids[] = $existing_variation_id;
 				}
 			} else {
-				$result['variations']['new']++;
+				// New variation.
+				$analysis['variations']['new']++;
 			}
 		}
 
-		return $result;
+		// Count unchanged existing variations (not being updated).
+		foreach ( $existing_variations as $existing_variation_id ) {
+			if ( ! in_array( $existing_variation_id, $matched_variation_ids, true ) ) {
+				$analysis['variations']['unchanged']++;
+			}
+		}
+	}
+
+	/**
+	 * Find matching variation for analysis (simpler comparison without requiring attributes to exist)
+	 *
+	 * @param array          $existing_variation_ids Array of existing variation IDs.
+	 * @param Variation_Data $variation_data Variation data to match.
+	 * @return int|false Variation ID if found, false otherwise.
+	 */
+	private function find_matching_variation_for_analysis( $existing_variation_ids, $variation_data ) {
+		foreach ( $existing_variation_ids as $variation_id ) {
+			$existing_variation = wc_get_product( $variation_id );
+
+			if ( ! $existing_variation ) {
+				continue;
+			}
+
+			// Get the variation's attributes.
+			$existing_attributes = $existing_variation->get_attributes();
+
+			// Normalize existing attributes for comparison (case-insensitive).
+			$normalized_existing = array();
+			foreach ( $existing_attributes as $key => $value ) {
+				// Get the attribute label.
+				$attr_label = wc_attribute_label( $key );
+				
+				// For the value, if it's a slug, convert it to the term name.
+				$taxonomy = str_replace( 'attribute_', '', $key );
+				if ( taxonomy_exists( $taxonomy ) ) {
+					$term = get_term_by( 'slug', $value, $taxonomy );
+					if ( $term ) {
+						$value = $term->name;
+					}
+				}
+				
+				$normalized_existing[ strtolower( $attr_label ) ] = strtolower( $value );
+			}
+
+			// Normalize input attributes.
+			$normalized_input = array();
+			foreach ( $variation_data->attributes as $attr_name => $attr_value ) {
+				$normalized_input[ strtolower( $attr_name ) ] = strtolower( $attr_value );
+			}
+
+			// Check if all attributes match.
+			if ( count( $normalized_existing ) === count( $normalized_input ) ) {
+				$match = true;
+				foreach ( $normalized_input as $key => $value ) {
+					if ( ! isset( $normalized_existing[ $key ] ) || $normalized_existing[ $key ] !== $value ) {
+						$match = false;
+						break;
+					}
+				}
+
+				if ( $match ) {
+					return $variation_id;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Analyze attribute changes
+	 *
+	 * @param array       $variations Array of Variation_Data objects.
+	 * @param \WC_Product $product Product object.
+	 * @param array       &$analysis Analysis array to update.
+	 */
+	private function analyze_attribute_changes( $variations, $product, &$analysis ) {
+		// Get unique attributes from input.
+		$parser = new Parser();
+		$input_attributes = $parser->get_unique_attribute_terms( $variations );
+
+		// Get existing product attributes.
+		$product_attributes = $product->get_attributes();
+		$existing_attribute_names = array();
+
+		foreach ( $product_attributes as $attribute ) {
+			if ( $attribute->get_variation() ) {
+				$attr_name = wc_attribute_label( $attribute->get_name() );
+				$existing_attribute_names[] = strtolower( $attr_name );
+			}
+		}
+
+		$updated_attribute_names = array();
+
+		// Check each input attribute.
+		foreach ( $input_attributes as $attr_name => $terms ) {
+			$attr_name_lower = strtolower( $attr_name );
+
+			if ( in_array( $attr_name_lower, $existing_attribute_names, true ) ) {
+				// Attribute exists - will be updated (merge values).
+				$analysis['attributes']['update']++;
+				$updated_attribute_names[] = $attr_name_lower;
+			} else {
+				// New attribute.
+				$analysis['attributes']['new']++;
+			}
+		}
+
+		// Count unchanged existing attributes (not being updated).
+		foreach ( $existing_attribute_names as $existing_attr_name ) {
+			if ( ! in_array( $existing_attr_name, $updated_attribute_names, true ) ) {
+				$analysis['attributes']['unchanged']++;
+			}
+		}
 	}
 
 	/**
