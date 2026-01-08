@@ -32,6 +32,9 @@ if ( file_exists( MKZ_BULK_VARIATIONS_PATH . 'vendor/autoload.php' ) ) {
 	require_once MKZ_BULK_VARIATIONS_PATH . 'vendor/autoload.php';
 }
 
+// Initialize database schema on activation (must be at global scope).
+register_activation_hook( __FILE__, array( 'BulkVariations\Core\Database', 'create_tables' ) );
+
 /**
  * Check if WooCommerce is active
  */
@@ -63,9 +66,6 @@ function mkz_bulk_variations_init() {
 	if ( ! mkz_bulk_variations_check_woocommerce() ) {
 		return;
 	}
-
-	// Initialize database schema on activation.
-	register_activation_hook( __FILE__, array( 'BulkVariations\Core\Database', 'create_tables' ) );
 
 	// Initialize admin functionality.
 	if ( is_admin() ) {

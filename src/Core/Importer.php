@@ -69,18 +69,18 @@ class Importer {
 		// Analyze attributes.
 		$parser = new Parser();
 		$unique_attributes = $parser->get_unique_attribute_terms( $variations );
-		
+
 		foreach ( $unique_attributes as $attr_name => $terms ) {
 			$attribute_slug = sanitize_title( $attr_name );
 			$attribute_id = $this->validator->get_existing_attribute_id( $attr_name );
-			
+
 			if ( $attribute_id ) {
 				// Attribute exists - check if we're adding new terms.
 				$taxonomy = wc_attribute_taxonomy_name( $attribute_slug );
 				if ( empty( $taxonomy ) ) {
 					$taxonomy = 'pa_' . $attribute_slug;
 				}
-				
+
 				$has_new_terms = false;
 				foreach ( $terms as $term_name ) {
 					$term_id = $this->validator->get_existing_term_id( $term_name, $taxonomy );
@@ -89,7 +89,7 @@ class Importer {
 						break;
 					}
 				}
-				
+
 				if ( $has_new_terms ) {
 					$result['attributes']['update']++;
 				} else {
@@ -275,7 +275,7 @@ class Importer {
 	public function import_variations( $variations ) {
 		error_log( "[Bulk Variations Importer] Starting import for product {$this->product_id}" );
 		error_log( "[Bulk Variations Importer] Variations to import: " . count( $variations ) );
-		
+
 		$result = array(
 			'success'   => false,
 			'created'   => array(),
@@ -339,7 +339,7 @@ class Importer {
 		$variation_count = 0;
 		foreach ( $variations as $variation_data ) {
 			$variation_count++;
-			
+
 			if ( $variation_data->has_errors() ) {
 				$error_msg = sprintf(
 					/* translators: %d: row number */
@@ -403,22 +403,22 @@ class Importer {
 	 */
 	private function setup_product_attributes( $variations, $product ) {
 		error_log( '[Bulk Variations Importer] Setting up product attributes' );
-		
+
 		$parser            = new Parser();
 		$unique_attributes = $parser->get_unique_attribute_terms( $variations );
-		
+
 		error_log( '[Bulk Variations Importer] Unique attributes found: ' . print_r( $unique_attributes, true ) );
-		
+
 		$attribute_mapping = array();
 		$product_attributes = array();
 
 		foreach ( $unique_attributes as $attr_name => $terms ) {
 			error_log( "[Bulk Variations Importer] Processing attribute: {$attr_name} with " . count( $terms ) . ' terms' );
-			
+
 			// Generate slug for the attribute.
 			$attribute_slug = sanitize_title( $attr_name );
 			error_log( "[Bulk Variations Importer] Attribute slug: {$attribute_slug}" );
-			
+
 			// Create or get attribute taxonomy.
 			$attribute_id = $this->get_or_create_attribute( $attr_name, $attribute_slug );
 
@@ -432,7 +432,7 @@ class Importer {
 			// Build taxonomy name manually in WooCommerce format: pa_{slug}.
 			$taxonomy = wc_attribute_taxonomy_name( $attribute_slug );
 			error_log( "[Bulk Variations Importer] Taxonomy name (from wc_attribute_taxonomy_name): {$taxonomy}" );
-			
+
 			// Fallback if empty - construct manually.
 			if ( empty( $taxonomy ) ) {
 				$taxonomy = 'pa_' . $attribute_slug;
@@ -484,7 +484,7 @@ class Importer {
 
 			$product_attributes[] = $attribute;
 			$attribute_mapping[ $attr_name ] = $taxonomy;
-			
+
 			error_log( "[Bulk Variations Importer] Attribute {$attr_name} mapped to {$taxonomy}" );
 		}
 
@@ -574,7 +574,7 @@ class Importer {
 	 */
 	private function create_variation( $variation_data, $product, $attribute_mapping ) {
 		error_log( "[Bulk Variations Importer] Creating variation - Price: {$variation_data->price}, SKU: {$variation_data->sku}" );
-		
+
 		$variation = new WC_Product_Variation();
 		$variation->set_parent_id( $this->product_id );
 		$variation->set_regular_price( $variation_data->price );
@@ -590,7 +590,7 @@ class Importer {
 		foreach ( $variation_data->attributes as $attr_name => $attr_value ) {
 			if ( isset( $attribute_mapping[ $attr_name ] ) ) {
 				$taxonomy = $attribute_mapping[ $attr_name ];
-				
+
 				// Get term slug.
 				$term = get_term_by( 'name', $attr_value, $taxonomy );
 				if ( $term ) {
@@ -637,7 +637,7 @@ class Importer {
 		foreach ( $variation_data->attributes as $attr_name => $attr_value ) {
 			if ( isset( $attribute_mapping[ $attr_name ] ) ) {
 				$taxonomy = $attribute_mapping[ $attr_name ];
-				
+
 				// Get term slug.
 				$term = get_term_by( 'name', $attr_value, $taxonomy );
 				if ( $term ) {
@@ -653,7 +653,7 @@ class Importer {
 			// Variation exists - check if we need to update it.
 			error_log( "[Bulk Variations Importer] Found existing variation ID: {$existing_variation_id}" );
 			$existing_variation = wc_get_product( $existing_variation_id );
-			
+
 			if ( ! $existing_variation ) {
 				error_log( "[Bulk Variations Importer] ERROR: Could not load existing variation {$existing_variation_id}" );
 				return array( 'id' => false, 'action' => 'error' );
@@ -671,24 +671,24 @@ class Importer {
 			// Update the price.
 			error_log( "[Bulk Variations Importer] Updating variation {$existing_variation_id} price from {$current_price} to {$new_price}" );
 			$existing_variation->set_regular_price( $new_price );
-			
+
 			// Update SKU if provided.
 			if ( ! empty( $variation_data->sku ) ) {
 				$existing_variation->set_sku( $variation_data->sku );
 			}
-			
+
 			$existing_variation->save();
-			
+
 			return array( 'id' => $existing_variation_id, 'action' => 'updated' );
 		}
 
 		// No existing variation - create new one.
 		error_log( "[Bulk Variations Importer] No existing variation found, creating new one" );
 		$variation_id = $this->create_variation( $variation_data, $product, $attribute_mapping );
-		
-		return array( 
-			'id' => $variation_id, 
-			'action' => $variation_id ? 'created' : 'error' 
+
+		return array(
+			'id' => $variation_id,
+			'action' => $variation_id ? 'created' : 'error'
 		);
 	}
 
@@ -701,7 +701,7 @@ class Importer {
 	 */
 	private function find_variation_by_attributes( $product_id, $attributes ) {
 		$product = wc_get_product( $product_id );
-		
+
 		if ( ! $product || $product->get_type() !== 'variable' ) {
 			return false;
 		}
@@ -711,13 +711,13 @@ class Importer {
 		foreach ( $existing_variations as $existing_variation ) {
 			$variation_id = $existing_variation['variation_id'];
 			$variation_obj = wc_get_product( $variation_id );
-			
+
 			if ( ! $variation_obj ) {
 				continue;
 			}
 
 			$variation_attributes = $variation_obj->get_attributes();
-			
+
 			// Normalize both arrays for case-insensitive comparison.
 			$normalized_variation_attrs = array();
 			foreach ( $variation_attributes as $key => $value ) {
