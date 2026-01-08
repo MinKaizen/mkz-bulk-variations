@@ -132,9 +132,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 				<?php esc_html_e( 'Import Variations', 'mkz-bulk-variations' ); ?>
 			</button>
 		</div>
-		</div>
-
-		<!-- Success/Error Messages -->
-		<div id="mkz-message-container"></div>
 	</div>
+
+	<!-- Import Results Section -->
+	<div id="mkz-results-section" class="mkz-bv-card" style="display: none;">
+		<h2><?php esc_html_e( 'Import Results', 'mkz-bulk-variations' ); ?></h2>
+		<div id="mkz-results-content"></div>
+	</div>
+</div>
 </div>
